@@ -1,0 +1,368 @@
+{
+  "name": "uplink",
+  "displayName": "Uplink",
+  "description": "Remote SSH support for OpenVSCode",
+  "version": "0.0.1",
+  "publisher": "rishiad",
+  "engines": {
+    "vscode": "^1.103.2"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "remote development",
+    "remote",
+    "ssh"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "enabledApiProposals": [
+    "resolvers",
+    "contribViewsRemote"
+  ],
+  "activationEvents": [
+    "onCommand:uplink.openEmptyWindow",
+    "onCommand:uplink.openEmptyWindowInCurrentWindow",
+    "onCommand:uplink.openConfigFile",
+    "onCommand:uplink.showLog",
+    "onResolveRemoteAuthority:ssh-remote",
+    "onView:sshHosts"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Uplink - Remote SSH",
+      "properties": {
+        "remote.SSH.configFile": {
+          "type": "string",
+          "description": "The absolute file path to a custom SSH config file.",
+          "default": "",
+          "scope": "application"
+        },
+        "remote.SSH.connectTimeout": {
+          "type": "number",
+          "description": "Specifies the timeout in seconds used for the SSH command that connects to the remote.",
+          "default": 60,
+          "scope": "application",
+          "minimum": 1
+        },
+        "remote.SSH.defaultExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of extensions that should be installed automatically on all SSH hosts.",
+          "scope": "application"
+        },
+        "remote.SSH.enableDynamicForwarding": {
+          "type": "boolean",
+          "description": "Whether to use SSH dynamic forwarding to allow setting up new port tunnels over an existing SSH connection.",
+          "scope": "application",
+          "default": true
+        },
+        "remote.SSH.enableAgentForwarding": {
+          "type": "boolean",
+          "markdownDescription": "Enable fixing the remote environment so that the SSH config option `ForwardAgent` will take effect as expected from VS Code's remote extension host.",
+          "scope": "application",
+          "default": true
+        },
+        "remote.SSH.sidecarArchivePath": {
+          "type": "string",
+          "description": "Absolute path to a local sidecar .tar.gz archive to upload to the remote host.",
+          "default": "",
+          "scope": "application"
+        },
+        "remote.SSH.remotePlatform": {
+          "type": "object",
+          "description": "A map of the remote hostname to the platform for that remote. Valid values: linux.",
+          "scope": "application",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "linux"
+            ]
+          }
+        },
+        "remote.SSH.remoteServerListenOnSocket": {
+          "type": "boolean",
+          "description": "When true, the remote server will listen on a socket path instead of opening a port. Only valid for Linux remotes.",
+          "default": false
+        },
+        "remote.SSH.experimental.serverBinaryName": {
+          "type": "string",
+          "description": "**Experimental:** The name of the server binary, use this only if you are using a client without a corresponding server release",
+          "scope": "application",
+          "default": ""
+        }
+      }
+    },
+    "views": {
+      "remote": [
+        {
+          "id": "sshHosts",
+          "name": "SSH Targets",
+          "group": "targets@1",
+          "remoteName": "ssh-remote"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "uplink.openEmptyWindow",
+        "title": "Connect to Host...",
+        "category": "Uplink"
+      },
+      {
+        "command": "uplink.openEmptyWindowInCurrentWindow",
+        "title": "Connect Current Window to Host...",
+        "category": "Uplink"
+      },
+      {
+        "command": "uplink.openConfigFile",
+        "title": "Open SSH Configuration File...",
+        "category": "Uplink"
+      },
+      {
+        "command": "uplink.showLog",
+        "title": "Show Log",
+        "category": "Uplink"
+      },
+      {
+        "command": "uplink.explorer.emptyWindowInNewWindow",
+        "title": "Connect to Host in New Window",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "uplink.explorer.emptyWindowInCurrentWindow",
+        "title": "Connect to Host in Current Window"
+      },
+      {
+        "command": "uplink.explorer.reopenFolderInCurrentWindow",
+        "title": "Open on SSH Host in Current Window"
+      },
+      {
+        "command": "uplink.explorer.reopenFolderInNewWindow",
+        "title": "Open on SSH Host in New Window",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "uplink.explorer.deleteFolderHistoryItem",
+        "title": "Remove From Recent List",
+        "icon": "$(x)"
+      },
+      {
+        "command": "uplink.explorer.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "uplink.explorer.configure",
+        "title": "Configure",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "uplink.explorer.add",
+        "title": "Add New",
+        "icon": "$(plus)"
+      }
+    ],
+    "resourceLabelFormatters": [
+      {
+        "scheme": "vscode-remote",
+        "authority": "ssh-remote+*",
+        "formatting": {
+          "label": "${path}",
+          "separator": "/",
+          "tildify": true,
+          "workspaceSuffix": "UPLINK"
+        }
+      }
+    ],
+    "menus": {
+      "statusBar/remoteIndicator": [
+        {
+          "command": "uplink.openEmptyWindow",
+          "when": "remoteName =~ /^ssh-remote$/ && remoteConnectionState == connected",
+          "group": "remote_20_ssh_1general@1"
+        },
+        {
+          "command": "uplink.openEmptyWindowInCurrentWindow",
+          "when": "remoteName =~ /^ssh-remote$/ && remoteConnectionState == connected",
+          "group": "remote_20_ssh_1general@2"
+        },
+        {
+          "command": "uplink.openConfigFile",
+          "when": "remoteName =~ /^ssh-remote$/ && remoteConnectionState == connected",
+          "group": "remote_20_ssh_1general@3"
+        },
+        {
+          "command": "uplink.showLog",
+          "when": "remoteName =~ /^ssh-remote$/ && remoteConnectionState == connected",
+          "group": "remote_20_ssh_1general@4"
+        },
+        {
+          "command": "uplink.openEmptyWindow",
+          "when": "remoteConnectionState == disconnected",
+          "group": "remote_20_ssh_3local@1"
+        },
+        {
+          "command": "uplink.openEmptyWindowInCurrentWindow",
+          "when": "remoteConnectionState == disconnected",
+          "group": "remote_20_ssh_3local@2"
+        },
+        {
+          "command": "uplink.openConfigFile",
+          "when": "remoteConnectionState == disconnected",
+          "group": "remote_20_ssh_3local@3"
+        },
+        {
+          "command": "uplink.openEmptyWindow",
+          "when": "!remoteName && !virtualWorkspace",
+          "group": "remote_20_ssh_3local@5"
+        },
+        {
+          "command": "uplink.openEmptyWindowInCurrentWindow",
+          "when": "!remoteName && !virtualWorkspace",
+          "group": "remote_20_ssh_3local@6"
+        },
+        {
+          "command": "uplink.openConfigFile",
+          "when": "!remoteName && !virtualWorkspace",
+          "group": "remote_20_ssh_3local@7"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "uplink.explorer.refresh",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.configure",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.add",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.emptyWindowInNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.emptyWindowInCurrentWindow",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.reopenFolderInCurrentWindow",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.reopenFolderInNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "uplink.explorer.deleteFolderHistoryItem",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "uplink.explorer.add",
+          "when": "view == sshHosts",
+          "group": "navigation"
+        },
+        {
+          "command": "uplink.explorer.configure",
+          "when": "view == sshHosts",
+          "group": "navigation"
+        },
+        {
+          "command": "uplink.explorer.refresh",
+          "when": "view == sshHosts",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "uplink.explorer.emptyWindowInNewWindow",
+          "when": "viewItem =~ /^uplink.explorer.host$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "uplink.explorer.emptyWindowInNewWindow",
+          "when": "viewItem =~ /^uplink.explorer.host$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "uplink.explorer.emptyWindowInCurrentWindow",
+          "when": "viewItem =~ /^uplink.explorer.host$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "uplink.explorer.reopenFolderInNewWindow",
+          "when": "viewItem == uplink.explorer.folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "uplink.explorer.reopenFolderInNewWindow",
+          "when": "viewItem == uplink.explorer.folder",
+          "group": "navigation@2"
+        },
+        {
+          "command": "uplink.explorer.reopenFolderInCurrentWindow",
+          "when": "viewItem == uplink.explorer.folder",
+          "group": "navigation@1"
+        },
+        {
+          "command": "uplink.explorer.deleteFolderHistoryItem",
+          "when": "viewItem =~ /^uplink.explorer.folder/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "uplink.explorer.deleteFolderHistoryItem",
+          "when": "viewItem =~ /^uplink.explorer.folder/",
+          "group": "inline@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.103.2",
+    "@types/mocha": "^10.0.8",
+    "@types/node": "20.x",
+    "@types/ssh2": "^0.5.52",
+    "@types/ssh2-streams": "0.1.12",
+    "@typescript-eslint/eslint-plugin": "^8.7.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "eslint": "^9.11.1",
+    "esbuild": "^0.24.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.6.2",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1"
+  },
+  "dependencies": {
+    "@jeanp413/ssh-config": "^4.3.1",
+    "glob": "^9.3.1",
+    "simple-socks": "git+https://github.com/jeanp413/simple-socks#main",
+    "socks": "^2.5.0",
+    "ssh2": "git+https://github.com/jeanp413/ssh2#master"
+  }
+}
