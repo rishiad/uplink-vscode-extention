@@ -155,8 +155,9 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
             title: `Setting up SSH Host ${sshDest.hostname}`,
             location: vscode.ProgressLocation.Notification,
             cancellable: false
-        }, async () => {
+        }, async (progress) => {
             try {
+                progress.report({ message: 'Connecting to SSH host...' });
                 const sshconfig = await SSHConfiguration.loadFromFS();
                 const sshHostConfig = sshconfig.getHostConfiguration(sshDest.hostname);
                 const sshHostName = sshHostConfig['HostName'] ? sshHostConfig['HostName'].replace('%h', sshDest.hostname) : sshDest.hostname;
@@ -184,6 +185,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
 
                 if (useNativeSSH) {
                     this.logger.info('Using native SSH connection (certificate detected)');
+                    progress.report({ message: 'Establishing SSH connection...' });
                     const keyPath = identityFiles[0] ? untildify(identityFiles[0]) : `${os.homedir()}/.ssh/id_ecdsa`;
                     const certPath = fs.existsSync(keyPath + '-cert.pub') ? keyPath + '-cert.pub' : undefined;
                     
@@ -274,6 +276,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                 }
 
                 // Create final shh connection
+                progress.report({ message: 'Establishing SSH connection...' });
                 const sshAuthHandler = this.getSSHAuthHandler(sshUser, sshHostName, identityKeys, preferredAuthentications);
 
                 this.sshConnection = new SSHConnection({
@@ -295,7 +298,8 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                     envVariables['SSH_AUTH_SOCK'] = null;
                 }
 
-                const installResult = await installCodeServer(this.sshConnection as any, resolvedArchivePath, defaultExtensions, Object.keys(envVariables), remotePlatformMap[sshDest.hostname], remoteServerListenOnSocket, this.logger);
+                progress.report({ message: 'Setting up server...' });
+                const installResult = await installCodeServer(this.sshConnection as any, resolvedArchivePath, defaultExtensions, Object.keys(envVariables), remotePlatformMap[sshDest.hostname], remoteServerListenOnSocket, this.logger, progress);
 
                 for (const key of Object.keys(envVariables)) {
                     if (installResult[key] !== undefined) {
@@ -313,6 +317,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
 
                 // Only enable SOCKS for non-native connections
                 if (enableDynamicForwarding && !useNativeSSH) {
+                    progress.report({ message: 'Setting up port forwarding...' });
                     const socksPort = await findRandomPort();
                     this.socksTunnel = await this.sshConnection!.addTunnel({
                         name: `ssh_tunnel_socks_${socksPort}`,
@@ -321,6 +326,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                     });
                 }
 
+                progress.report({ message: 'Opening connection tunnel...' });
                 const tunnelConfig = await this.openTunnel(0, installResult.listeningOn);
                 this.tunnels.push(tunnelConfig);
 

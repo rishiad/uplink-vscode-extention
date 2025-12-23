@@ -1,10 +1,11 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import Log from './common/logger';
 import { getVSCodeServerConfig } from './serverConfig';
 import SSHConnection from './ssh/sshConnection';
-import { getOrDownloadServer } from './serverDownload';
+import { getOrDownloadServerOnRemote } from './serverDownload';
 
 export interface ServerInstallOptions {
     id: string;
@@ -44,43 +45,60 @@ export async function installCodeServer(
     envVariables: string[],
     platform: string | undefined,
     useSocketPath: boolean,
-    logger: Log
+    logger: Log,
+    progress?: vscode.Progress<{ message?: string; increment?: number }>
 ): Promise<ServerInstallResult> {
     const scriptId = crypto.randomBytes(12).toString('hex');
     const vscodeServerConfig = await getVSCodeServerConfig();
 
-    // If no local archive specified, download from GitHub releases
-    let localArchivePath: string;
-    if (!serverArchivePath) {
-        logger.trace('No local server archive specified, downloading from GitHub releases...');
-        localArchivePath = await getOrDownloadServer(conn, logger);
-    } else {
-        localArchivePath = path.resolve(serverArchivePath);
-        try {
-            await fs.promises.access(localArchivePath);
-        } catch (error) {
-            throw new ServerInstallError(`Sidecar archive not found at ${localArchivePath}`);
-        }
+    if (progress) {
+        progress.report({ message: 'Detecting remote platform...' });
     }
-
     const detectedPlatform = platform || await detectRemotePlatform(conn, logger);
     if (detectedPlatform !== 'linux') {
         throw new ServerInstallError(`Only Linux remotes are supported for the MVP (detected: ${detectedPlatform})`);
     }
 
     const remoteHome = await resolveRemoteHomeDir(conn);
-    const serverDir = `${remoteHome}/${vscodeServerConfig.serverDataFolderName}/bin/${vscodeServerConfig.commit}`;
+    const serverDataDir = `${remoteHome}/${vscodeServerConfig.serverDataFolderName}`;
+    const serverDir = `${serverDataDir}/bin/${vscodeServerConfig.commit}`;
     const serverScript = `${serverDir}/bin/${vscodeServerConfig.serverApplicationName}`;
-    const remoteArchivePath = `${serverDir}/server.tar.gz`;
 
-    const localArchiveSize = (await fs.promises.stat(localArchivePath)).size;
+    // Check if server already installed
+    if (progress) {
+        progress.report({ message: 'Checking for existing server...' });
+    }
     const serverInstalled = await remoteFileExists(conn, serverScript);
+    
+    let remoteArchivePath: string;
     if (!serverInstalled) {
-        await conn.exec(`mkdir -p ${shellEscape(serverDir)}`);
-        logger.trace(`Uploading sidecar archive to ${remoteArchivePath}`);
-        await conn.exec(`rm -f ${shellEscape(remoteArchivePath)}`);
-        await conn.uploadFile(localArchivePath, remoteArchivePath);
-        await verifyRemoteArchiveSize(conn, localArchivePath, remoteArchivePath, localArchiveSize, logger);
+        // Get or download server
+        if (!serverArchivePath) {
+            logger.trace('No local server archive specified, downloading from GitHub releases...');
+            remoteArchivePath = await getOrDownloadServerOnRemote(conn, serverDataDir, logger);
+        } else {
+            // Upload local archive
+            const localArchivePath = path.resolve(serverArchivePath);
+            try {
+                await fs.promises.access(localArchivePath);
+            } catch (error) {
+                throw new ServerInstallError(`Sidecar archive not found at ${localArchivePath}`);
+            }
+            
+            remoteArchivePath = `${serverDir}/server.tar.gz`;
+            const localArchiveSize = (await fs.promises.stat(localArchivePath)).size;
+            
+            if (progress) {
+                progress.report({ message: 'Uploading server archive...' });
+            }
+            await conn.exec(`mkdir -p ${shellEscape(serverDir)}`);
+            logger.trace(`Uploading sidecar archive to ${remoteArchivePath}`);
+            await conn.exec(`rm -f ${shellEscape(remoteArchivePath)}`);
+            await conn.uploadFile(localArchivePath, remoteArchivePath);
+            await verifyRemoteArchiveSize(conn, localArchivePath, remoteArchivePath, localArchiveSize, logger);
+        }
+    } else {
+        remoteArchivePath = `${serverDir}/server.tar.gz`;
     }
 
     const installOptions: ServerInstallOptions = {
@@ -96,6 +114,9 @@ export async function installCodeServer(
         serverArchivePath: remoteArchivePath,
     };
 
+    if (progress) {
+        progress.report({ message: 'Installing and starting server...' });
+    }
     const installServerScript = generateBashInstallScript(installOptions);
 
     logger.trace('Server install command:', installServerScript);
@@ -378,6 +399,25 @@ if [[ -z $SERVER_RUNNING_PROCESS ]]; then
     echo $! > $SERVER_PIDFILE
 else
     echo "Server script is already running $SERVER_SCRIPT"
+    # If token file doesn't exist but server is running, kill and restart
+    if [[ ! -f $SERVER_TOKENFILE ]]; then
+        echo "Token file missing, restarting server"
+        if [[ -f $SERVER_PIDFILE ]]; then
+            kill $(cat $SERVER_PIDFILE) 2>/dev/null || true
+        fi
+        pkill -f "$SERVER_SCRIPT" 2>/dev/null || true
+        sleep 1
+        
+        rm -f $SERVER_LOGFILE $SERVER_TOKENFILE $SERVER_PIDFILE
+        
+        touch $SERVER_TOKENFILE
+        chmod 600 $SERVER_TOKENFILE
+        SERVER_CONNECTION_TOKEN="${crypto.randomUUID()}"
+        echo $SERVER_CONNECTION_TOKEN > $SERVER_TOKENFILE
+        
+        $SERVER_SCRIPT --start-server --host=127.0.0.1 $SERVER_LISTEN_FLAG $SERVER_INITIAL_EXTENSIONS --connection-token-file $SERVER_TOKENFILE --telemetry-level off --enable-remote-auto-shutdown --accept-server-license-terms &> $SERVER_LOGFILE &
+        echo $! > $SERVER_PIDFILE
+    fi
 fi
 
 if [[ -f $SERVER_TOKENFILE ]]; then

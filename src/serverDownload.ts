@@ -1,7 +1,3 @@
-import * as https from 'https';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import Log from './common/logger';
 import SSHConnection from './ssh/sshConnection';
@@ -41,89 +37,100 @@ export function getServerDownloadUrl(systemInfo: RemoteSystemInfo): string {
     return `https://github.com/${serverRepo}/releases/download/v${serverVersion}/server-linux-${arch}-${libc}-${serverVersion}.tar.gz`;
 }
 
-export async function downloadServer(
+export async function downloadServerOnRemote(
+    conn: SSHConnection,
     url: string,
     destPath: string,
-    logger: Log
+    logger: Log,
+    progress: vscode.Progress<{ message?: string; increment?: number }>
 ): Promise<void> {
-    logger.trace(`Downloading server from ${url}`);
+    logger.trace(`Downloading server on remote from ${url}`);
     
-    return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(destPath);
-        
-        https.get(url, (response) => {
-            if (response.statusCode === 302 || response.statusCode === 301) {
-                // Follow redirect
-                if (response.headers.location) {
-                    file.close();
-                    fs.unlinkSync(destPath);
-                    downloadServer(response.headers.location, destPath, logger)
-                        .then(resolve)
-                        .catch(reject);
-                    return;
-                }
+    // Create directory
+    const destDir = destPath.substring(0, destPath.lastIndexOf('/'));
+    await conn.exec(`mkdir -p '${destDir}'`);
+    
+    // Download with curl showing progress
+    const downloadScript = `
+set -e
+TMP_FILE="${destPath}.tmp"
+rm -f "$TMP_FILE"
+
+if command -v curl >/dev/null 2>&1; then
+    curl -L --progress-bar -o "$TMP_FILE" "${url}" 2>&1 | 
+    while IFS= read -r line; do
+        if [[ "$line" =~ ([0-9]+)\.[0-9]+% ]]; then
+            echo "PROGRESS:\${BASH_REMATCH[1]}"
+        fi
+    done
+elif command -v wget >/dev/null 2>&1; then
+    wget --progress=dot:mega -O "$TMP_FILE" "${url}" 2>&1 |
+    while IFS= read -r line; do
+        if [[ "$line" =~ ([0-9]+)% ]]; then
+            echo "PROGRESS:\${BASH_REMATCH[1]}"
+        fi
+    done
+else
+    echo "Error: Neither curl nor wget found"
+    exit 1
+fi
+
+mv "$TMP_FILE" "${destPath}"
+echo "DOWNLOAD_COMPLETE"
+`;
+    
+    const result = await conn.exec(`bash -c '${downloadScript.replace(/'/g, `'\\''`)}'`);
+    
+    const lines = result.stdout.split('\n');
+    let lastPercent = 0;
+    for (const line of lines) {
+        if (line.startsWith('PROGRESS:')) {
+            const percent = parseInt(line.substring(9), 10);
+            if (percent > lastPercent) {
+                const increment = percent - lastPercent;
+                progress.report({ 
+                    increment,
+                    message: `${percent}% complete`
+                });
+                lastPercent = percent;
             }
-            
-            if (response.statusCode !== 200) {
-                file.close();
-                fs.unlinkSync(destPath);
-                reject(new Error(`Failed to download server: HTTP ${response.statusCode}`));
-                return;
-            }
-            
-            response.pipe(file);
-            
-            file.on('finish', () => {
-                file.close();
-                logger.trace(`Server downloaded to ${destPath}`);
-                resolve();
-            });
-        }).on('error', (err) => {
-            file.close();
-            fs.unlinkSync(destPath);
-            reject(err);
-        });
-    });
+        }
+    }
+    
+    if (!result.stdout.includes('DOWNLOAD_COMPLETE')) {
+        throw new Error(`Download failed: ${result.stderr || 'Unknown error'}`);
+    }
+    
+    logger.trace(`Server downloaded to ${destPath} on remote`);
 }
 
-export async function getOrDownloadServer(
+export async function getOrDownloadServerOnRemote(
     conn: SSHConnection,
+    remoteServerDir: string,
     logger: Log
 ): Promise<string> {
     const systemInfo = await detectRemoteSystem(conn, logger);
     const downloadUrl = getServerDownloadUrl(systemInfo);
-    const cachedServerPath = await tryDownloadServer(downloadUrl, logger);
     
-    if (!cachedServerPath) {
-        throw new Error('Failed to download server from GitHub releases');
+    // Remote cache path
+    const remoteCacheDir = `${remoteServerDir}/cache`;
+    const remoteServerPath = `${remoteCacheDir}/server.tar.gz`;
+    
+    // Check if already cached on remote
+    const checkResult = await conn.exec(`if [ -f '${remoteServerPath}' ]; then echo exists; fi`);
+    if (checkResult.stdout.trim() === 'exists') {
+        logger.trace(`Using cached server from ${remoteServerPath}`);
+        return remoteServerPath;
     }
     
-    return cachedServerPath;
-}
-
-async function tryDownloadServer(downloadUrl: string, logger: Log): Promise<string | null> {
-    // Create cache directory
-    const cacheDir = path.join(process.env.HOME || process.env.USERPROFILE || '/tmp', '.uplink', 'servers');
-    await fs.promises.mkdir(cacheDir, { recursive: true });
+    // Download on remote with progress
+    await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'Downloading server on remote host',
+        cancellable: false
+    }, async (progress) => {
+        await downloadServerOnRemote(conn, downloadUrl, remoteServerPath, logger, progress);
+    });
     
-    // Generate cache filename based on URL hash
-    const urlHash = crypto.createHash('sha256').update(downloadUrl).digest('hex').substring(0, 16);
-    const cachedServerPath = path.join(cacheDir, `server-${urlHash}.tar.gz`);
-    
-    // Check if already cached
-    try {
-        await fs.promises.access(cachedServerPath);
-        logger.trace(`Using cached server from ${cachedServerPath}`);
-        return cachedServerPath;
-    } catch {
-        // Not cached, try to download
-        try {
-            logger.trace(`Downloading server from ${downloadUrl}`);
-            await downloadServer(downloadUrl, cachedServerPath, logger);
-            return cachedServerPath;
-        } catch (error) {
-            logger.trace(`Download failed: ${error}`);
-            return null;
-        }
-    }
+    return remoteServerPath;
 }
