@@ -4,6 +4,7 @@ import * as path from 'path';
 import Log from './common/logger';
 import { getVSCodeServerConfig } from './serverConfig';
 import SSHConnection from './ssh/sshConnection';
+import { getOrDownloadServer } from './serverDownload';
 
 export interface ServerInstallOptions {
     id: string;
@@ -48,15 +49,18 @@ export async function installCodeServer(
     const scriptId = crypto.randomBytes(12).toString('hex');
     const vscodeServerConfig = await getVSCodeServerConfig();
 
+    // If no local archive specified, download from GitHub releases
+    let localArchivePath: string;
     if (!serverArchivePath) {
-        throw new ServerInstallError('remote.SSH.sidecarArchivePath must be set for local sidecar installs');
-    }
-
-    const localArchivePath = path.resolve(serverArchivePath);
-    try {
-        await fs.promises.access(localArchivePath);
-    } catch (error) {
-        throw new ServerInstallError(`Sidecar archive not found at ${localArchivePath}`);
+        logger.trace('No local server archive specified, downloading from GitHub releases...');
+        localArchivePath = await getOrDownloadServer(conn, logger);
+    } else {
+        localArchivePath = path.resolve(serverArchivePath);
+        try {
+            await fs.promises.access(localArchivePath);
+        } catch (error) {
+            throw new ServerInstallError(`Sidecar archive not found at ${localArchivePath}`);
+        }
     }
 
     const detectedPlatform = platform || await detectRemotePlatform(conn, logger);
@@ -328,7 +332,10 @@ if [[ ! -f $SERVER_SCRIPT ]]; then
     fi
 
     if [[ ! -f $SERVER_SCRIPT ]]; then
-        if [[ "$SERVER_APP_NAME" != "openvscode-server" && -f "$SERVER_DIR/bin/openvscode-server" ]]; then
+        if [[ "$SERVER_APP_NAME" != "uplink-server" && -f "$SERVER_DIR/bin/uplink-server" ]]; then
+            SERVER_APP_NAME="uplink-server"
+            SERVER_SCRIPT="$SERVER_DIR/bin/$SERVER_APP_NAME"
+        elif [[ "$SERVER_APP_NAME" != "openvscode-server" && -f "$SERVER_DIR/bin/openvscode-server" ]]; then
             SERVER_APP_NAME="openvscode-server"
             SERVER_SCRIPT="$SERVER_DIR/bin/$SERVER_APP_NAME"
         elif [[ "$SERVER_APP_NAME" != "code-server" && -f "$SERVER_DIR/bin/code-server" ]]; then

@@ -32,8 +32,8 @@ export async function getVSCodeServerConfig(): Promise<IServerConfig> {
         commit: productJson.commit,
         quality: productJson.quality,
         release: productJson.release,
-        serverApplicationName: customServerBinaryName || productJson.serverApplicationName,
-        serverDataFolderName: productJson.serverDataFolderName,
+        serverApplicationName: customServerBinaryName || 'uplink-server',
+        serverDataFolderName: '.uplink-server',
         serverDownloadUrlTemplate: productJson.serverDownloadUrlTemplate
     };
 }

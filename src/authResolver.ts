@@ -149,9 +149,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
         const remotePlatformMap = remoteSSHconfig.get<Record<string, string>>('remotePlatform', {});
         const remoteServerListenOnSocket = remoteSSHconfig.get<boolean>('remoteServerListenOnSocket', false)!;
         const connectTimeout = remoteSSHconfig.get<number>('connectTimeout', 60)!;
-        const resolvedArchivePath = sidecarArchivePath
-            ? untildify(sidecarArchivePath)
-            : this.context.asAbsolutePath(path.join('resources', 'sidecar', 'sidecar.tar.gz'));
+        const resolvedArchivePath = sidecarArchivePath ? untildify(sidecarArchivePath) : undefined;
 
         return vscode.window.withProgress({
             title: `Setting up SSH Host ${sshDest.hostname}`,
