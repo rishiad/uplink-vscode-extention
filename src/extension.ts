@@ -9,51 +9,63 @@ import {
 } from "./remoteLocationHistory";
 
 export async function activate(context: vscode.ExtensionContext) {
-  const logger = new Log("Uplink");
-  context.subscriptions.push(logger);
+  try {
+    const logger = new Log("Uplink");
+    context.subscriptions.push(logger);
+    logger.info("Uplink extension activating...");
 
-  const remoteSSHResolver = new RemoteSSHResolver(context, logger);
-  context.subscriptions.push(
-    vscode.workspace.registerRemoteAuthorityResolver(
-      REMOTE_SSH_AUTHORITY,
-      remoteSSHResolver
-    )
-  );
-  context.subscriptions.push(remoteSSHResolver);
+    // Register commands first
+    context.subscriptions.push(
+      vscode.commands.registerCommand("uplink.openEmptyWindow", () =>
+        promptuplinkWindow(false)
+      )
+    );
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        "uplink.openEmptyWindowInCurrentWindow",
+        () => promptuplinkWindow(true)
+      )
+    );
+    context.subscriptions.push(
+      vscode.commands.registerCommand("uplink.openConfigFile", () =>
+        openSSHConfigFile()
+      )
+    );
+    context.subscriptions.push(
+      vscode.commands.registerCommand("uplink.showLog", () => logger.show())
+    );
+    logger.info("Commands registered");
 
-  const locationHistory = new RemoteLocationHistory(context);
-  const locationData = getRemoteWorkspaceLocationData();
-  if (locationData) {
-    await locationHistory.addLocation(locationData[0], locationData[1]);
+    const remoteSSHResolver = new RemoteSSHResolver(context, logger);
+    context.subscriptions.push(
+      vscode.workspace.registerRemoteAuthorityResolver(
+        REMOTE_SSH_AUTHORITY,
+        remoteSSHResolver
+      )
+    );
+    context.subscriptions.push(remoteSSHResolver);
+    logger.info("Remote resolver registered");
+
+    const locationHistory = new RemoteLocationHistory(context);
+    const locationData = getRemoteWorkspaceLocationData();
+    if (locationData) {
+      await locationHistory.addLocation(locationData[0], locationData[1]);
+    }
+
+    const hostTreeDataProvider = new HostTreeDataProvider(locationHistory);
+    context.subscriptions.push(
+      vscode.window.createTreeView("sshHosts", {
+        treeDataProvider: hostTreeDataProvider,
+      })
+    );
+    context.subscriptions.push(hostTreeDataProvider);
+
+    logger.info("Uplink extension activated successfully");
+  } catch (error) {
+    vscode.window.showErrorMessage(`Uplink activation failed: ${error}`);
+    console.error("Uplink activation error:", error);
+    throw error;
   }
-
-  const hostTreeDataProvider = new HostTreeDataProvider(locationHistory);
-  context.subscriptions.push(
-    vscode.window.createTreeView("sshHosts", {
-      treeDataProvider: hostTreeDataProvider,
-    })
-  );
-  context.subscriptions.push(hostTreeDataProvider);
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("uplink.openEmptyWindow", () =>
-      promptuplinkWindow(false)
-    )
-  );
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "uplink.openEmptyWindowInCurrentWindow",
-      () => promptuplinkWindow(true)
-    )
-  );
-  context.subscriptions.push(
-    vscode.commands.registerCommand("uplink.openConfigFile", () =>
-      openSSHConfigFile()
-    )
-  );
-  context.subscriptions.push(
-    vscode.commands.registerCommand("uplink.showLog", () => logger.show())
-  );
 }
 
 export function deactivate() {}

@@ -256,11 +256,9 @@ export default class SSHConnection extends EventEmitter {
 
             //Start ssh server connection
             this.sshConnection = new Client();
-            this.sshConnection.on('ready', (err: Error & ClientErrorExtensions) => {
-                if (err) {
-                    this.emit(SSHConstants.CHANNEL.SSH, SSHConstants.STATUS.DISCONNECT, { err: err });
-                    this.__$connectPromise = null;
-                    return reject(err);
+            this.sshConnection.on('ready', () => {
+                if (false) { // Remove unused err parameter
+                    return reject(new Error('unused'));
                 }
                 this.emit(SSHConstants.CHANNEL.SSH, SSHConstants.STATUS.CONNECT);
                 this.__retries = 0;

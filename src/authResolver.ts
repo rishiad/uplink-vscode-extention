@@ -10,6 +10,7 @@ import type { ParsedKey } from 'ssh2-streams';
 import Log from './common/logger';
 import SSHDestination from './ssh/sshDestination';
 import SSHConnection, { SSHTunnelConfig } from './ssh/sshConnection';
+import { NativeSSHConnection } from './nativeSSHConnection';
 import SSHConfiguration from './ssh/sshConfig';
 import { gatherIdentityFiles } from './ssh/identityFiles';
 import { untildify, exists as fileExists } from './common/files';
@@ -105,6 +106,7 @@ interface SSHKey {
     fingerprint: string;
     agentSupport?: boolean;
     isPrivate?: boolean;
+    isCertificate?: boolean;
 }
 
 type ProxyJump = [SSHDestination, Record<string, string>];
@@ -112,7 +114,7 @@ type ProxyJump = [SSHDestination, Record<string, string>];
 export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode.Disposable {
 
     private proxyConnections: SSHConnection[] = [];
-    private sshConnection: SSHConnection | undefined;
+    private sshConnection: SSHConnection | NativeSSHConnection | undefined;
     private sshAgentSock: string | undefined;
     private proxyCommandProcess: cp.ChildProcessWithoutNullStreams | undefined;
 
@@ -175,8 +177,28 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                 const identitiesOnly = (sshHostConfig['IdentitiesOnly'] || 'no').toLowerCase() === 'yes';
                 const identityKeys = await gatherIdentityFiles(identityFiles, this.sshAgentSock, identitiesOnly, this.logger);
 
-                // Create proxy jump connections if any
+                // Check if we have certificates - use native SSH if so
+                const hasCertificate = identityKeys.some(k => k.agentSupport) || 
+                    identityFiles.some(f => fs.existsSync(untildify(f) + '-cert.pub'));
+                
                 let proxyStream: ssh2.ClientChannel | stream.Duplex | undefined;
+                const useNativeSSH = hasCertificate && !sshHostConfig['ProxyJump'];
+
+                if (useNativeSSH) {
+                    this.logger.info('Using native SSH connection (certificate detected)');
+                    const keyPath = identityFiles[0] ? untildify(identityFiles[0]) : `${os.homedir()}/.ssh/id_ecdsa`;
+                    const certPath = fs.existsSync(keyPath + '-cert.pub') ? keyPath + '-cert.pub' : undefined;
+                    
+                    this.sshConnection = new NativeSSHConnection({
+                        host: sshHostName,
+                        port: sshPort,
+                        username: sshUser,
+                        keyPath,
+                        certPath
+                    }, this.logger);
+                    
+                    await this.sshConnection.connect();
+                } else {
                 if (sshHostConfig['ProxyJump']) {
                     const proxyJumps: ProxyJump[] = sshHostConfig['ProxyJump'].split(',').filter(i => !!i.trim())
                         .map((jump): ProxyJump => {
@@ -268,13 +290,14 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                     authHandler: (arg0, arg1, arg2) => (sshAuthHandler(arg0, arg1, arg2), undefined),
                 });
                 await this.sshConnection.connect();
+                }
 
                 const envVariables: Record<string, string | null> = {};
                 if (agentForward) {
                     envVariables['SSH_AUTH_SOCK'] = null;
                 }
 
-                const installResult = await installCodeServer(this.sshConnection, resolvedArchivePath, defaultExtensions, Object.keys(envVariables), remotePlatformMap[sshDest.hostname], remoteServerListenOnSocket, this.logger);
+                const installResult = await installCodeServer(this.sshConnection as any, resolvedArchivePath, defaultExtensions, Object.keys(envVariables), remotePlatformMap[sshDest.hostname], remoteServerListenOnSocket, this.logger);
 
                 for (const key of Object.keys(envVariables)) {
                     if (installResult[key] !== undefined) {
@@ -290,7 +313,8 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                     }
                 }
 
-                if (enableDynamicForwarding) {
+                // Only enable SOCKS for non-native connections
+                if (enableDynamicForwarding && !useNativeSSH) {
                     const socksPort = await findRandomPort();
                     this.socksTunnel = await this.sshConnection!.addTunnel({
                         name: `ssh_tunnel_socks_${socksPort}`,
@@ -313,7 +337,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                         label: '${path}',
                         separator: '/',
                         tildify: true,
-                        workspaceSuffix: `SSH: ${sshDest.hostname}` + (sshDest.port && sshDest.port !== 22 ? `:${sshDest.port}` : '')
+                        workspaceSuffix: `UPLINK: ${sshDest.hostname}` + (sshDest.port && sshDest.port !== 22 ? `:${sshDest.port}` : '')
                     }
                 });
 
@@ -410,7 +434,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
         let passwordRetryCount = PASSWORD_RETRY_COUNT;
         let keyboardRetryCount = PASSWORD_RETRY_COUNT;
         identityKeys = identityKeys.slice();
-        return async (methodsLeft: string[] | null, _partialSuccess: boolean | null, callback: (nextAuth: ssh2.AuthHandlerResult) => void) => {
+        return async (methodsLeft: string[] | null, _partialSuccess: boolean | null, callback: (nextAuth: any) => void) => {
             if (methodsLeft === null) {
                 this.logger.info(`Trying no-auth authentication`);
 
@@ -422,18 +446,13 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
             if (methodsLeft.includes('publickey') && identityKeys.length && preferredAuthentications.includes('publickey')) {
                 const identityKey = identityKeys.shift()!;
 
-                this.logger.info(`Trying publickey authentication: ${identityKey.filename} ${identityKey.parsedKey.type} SHA256:${identityKey.fingerprint}`);
+                this.logger.info(`Trying publickey authentication: ${identityKey.filename} ${identityKey.parsedKey?.type || 'certificate'} ${identityKey.fingerprint}`);
 
-                if (identityKey.agentSupport) {
+                if (identityKey.agentSupport && this.sshAgentSock) {
                     return callback({
                         type: 'agent',
                         username: sshUser,
-                        agent: new class extends ssh2.OpenSSHAgent {
-                            // Only return the current key
-                            override getIdentities(callback: (err: Error | undefined, publicKeys?: ParsedKey[]) => void): void {
-                                callback(undefined, [identityKey.parsedKey]);
-                            }
-                        }(this.sshAgentSock!)
+                        agent: new ssh2.OpenSSHAgent(this.sshAgentSock)
                     });
                 }
                 if (identityKey.isPrivate) {
@@ -448,34 +467,46 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                     return callback(null as any);
                 }
 
-                const keyBuffer = await fs.promises.readFile(identityKey.filename);
-                let result = ssh2.utils.parseKey(keyBuffer); // First try without passphrase
-                if (result instanceof Error && result.message === 'Encrypted private OpenSSH key detected, but no passphrase given') {
-                    let passphraseRetryCount = PASSPHRASE_RETRY_COUNT;
-                    while (result instanceof Error && passphraseRetryCount > 0) {
-                        const passphrase = await vscode.window.showInputBox({
-                            title: `Enter passphrase for ${identityKey.filename}`,
-                            password: true,
-                            ignoreFocusOut: true
-                        });
-                        if (!passphrase) {
-                            break;
-                        }
-                        result = ssh2.utils.parseKey(keyBuffer, passphrase);
-                        passphraseRetryCount--;
-                    }
-                }
-                if (!result || result instanceof Error) {
-                    // Try next identity file
+                if (identityKey.isCertificate) {
+                    // Skip certificates for now - they're causing hangs
                     return callback(null as any);
-                }
+                } else {
+                    // Regular key authentication
+                    const keyFilePath = identityKey.filename;
+                    
+                    if (!await fileExists(keyFilePath)) {
+                        return callback(null as any);
+                    }
 
-                const key = Array.isArray(result) ? result[0] : result;
-                return callback({
-                    type: 'publickey',
-                    username: sshUser,
-                    key
-                });
+                    const keyBuffer = await fs.promises.readFile(keyFilePath);
+                    let result = ssh2.utils.parseKey(keyBuffer);
+                    if (result instanceof Error && result.message === 'Encrypted private OpenSSH key detected, but no passphrase given') {
+                        let passphraseRetryCount = PASSPHRASE_RETRY_COUNT;
+                        while (result instanceof Error && passphraseRetryCount > 0) {
+                            const passphrase = await vscode.window.showInputBox({
+                                title: `Enter passphrase for ${identityKey.filename}`,
+                                password: true,
+                                ignoreFocusOut: true
+                            });
+                            if (!passphrase) {
+                                break;
+                            }
+                            result = ssh2.utils.parseKey(keyBuffer, passphrase);
+                            passphraseRetryCount--;
+                        }
+                    }
+                    if (!result || result instanceof Error) {
+                        return callback(null as any);
+                    }
+
+                    const key = Array.isArray(result) ? result[0] : result;
+                    
+                    return callback({
+                        type: 'publickey',
+                        username: sshUser,
+                        key
+                    });
+                }
             }
             if (methodsLeft.includes('password') && passwordRetryCount > 0 && preferredAuthentications.includes('password')) {
                 if (passwordRetryCount === PASSWORD_RETRY_COUNT) {
@@ -505,7 +536,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                 return callback({
                     type: 'keyboard-interactive',
                     username: sshUser,
-                    prompt: async (_name, _instructions, _instructionsLang, prompts, finish) => {
+                    prompt: async (_name: any, _instructions: any, _instructionsLang: any, prompts: any, finish: any) => {
                         const responses: string[] = [];
                         for (const prompt of prompts) {
                             const response = await vscode.window.showInputBox({

@@ -6,6 +6,7 @@ import type { ParsedKey } from 'ssh2-streams';
 import * as ssh2 from 'ssh2';
 import { untildify, exists as fileExists } from '../common/files';
 import Log from '../common/logger';
+import { loadSSHKeyInfo, isCertificateFile } from '../native/ssh';
 
 const homeDir = os.homedir();
 const PATH_SSH_CLIENT_ID_DSA = path.join(homeDir, '.ssh', '/id_dsa');
@@ -32,6 +33,7 @@ export interface SSHKey {
     fingerprint: string;
     agentSupport?: boolean;
     isPrivate?: boolean;
+    isCertificate?: boolean;
 }
 
 // From https://github.com/openssh/openssh-portable/blob/acb2059febaddd71ee06c2ebf63dcf211d9ab9f2/sshconnect2.c#L1689-L1690
@@ -42,29 +44,52 @@ export async function gatherIdentityFiles(identityFiles: string[], sshAgentSock:
     }
 
     const identityFileContentsResult = await Promise.allSettled(identityFiles.map(async keyPath => {
-        keyPath = await fileExists(keyPath + '.pub') ? keyPath + '.pub' : keyPath;
-        return fs.promises.readFile(keyPath);
+        // Only use private key files, skip certificates and public keys for now
+        if (await fileExists(keyPath)) {
+            return { keyPath: keyPath, content: await fs.promises.readFile(keyPath) };
+        }
+        throw new Error(`Key file not found: ${keyPath}`);
     }));
-    const fileKeys: SSHKey[] = identityFileContentsResult.map((result, i) => {
+    
+    const fileKeys: SSHKey[] = [];
+    identityFileContentsResult.forEach((result, i) => {
         if (result.status === 'rejected') {
-            return undefined;
+            return;
         }
 
-        const parsedResult = ssh2.utils.parseKey(result.value);
-        if (parsedResult instanceof Error || !parsedResult) {
-            logger.error(`Error while parsing SSH public key ${identityFiles[i]}:`, parsedResult);
-            return undefined;
+        const { keyPath, content } = result.value;
+        
+        try {
+            // Try native Rust module for key validation (optional)
+            try {
+                const keyInfo = loadSSHKeyInfo(keyPath);
+                logger.trace(`Native key info for ${keyPath}: ${keyInfo}`);
+            } catch (nativeError) {
+                logger.trace(`Native module couldn't load ${keyPath}, trying ssh2 fallback`);
+            }
+            
+            // Use ssh2 for actual parsing
+            const parsedResult = ssh2.utils.parseKey(content);
+            if (parsedResult instanceof Error || !parsedResult) {
+                logger.error(`Error while parsing SSH private key ${keyPath}:`, parsedResult);
+                return;
+            }
+
+            const parsedKey = Array.isArray(parsedResult) ? parsedResult[0] : parsedResult;
+            const fingerprint = crypto.createHash('sha256').update(parsedKey.getPublicSSH()).digest('base64');
+
+            fileKeys.push({
+                filename: keyPath,
+                parsedKey,
+                fingerprint,
+                isCertificate: false,
+                isPrivate: true,
+                agentSupport: false
+            });
+        } catch (error) {
+            logger.error(`Failed to parse key ${keyPath}:`, error);
         }
-
-        const parsedKey = Array.isArray(parsedResult) ? parsedResult[0] : parsedResult;
-        const fingerprint = crypto.createHash('sha256').update(parsedKey.getPublicSSH()).digest('base64');
-
-        return {
-            filename: identityFiles[i],
-            parsedKey,
-            fingerprint
-        };
-    }).filter(<T>(v: T | undefined): v is T => !!v);
+    });
 
     let sshAgentParsedKeys: ParsedKey[] = [];
     try {
@@ -78,10 +103,11 @@ export async function gatherIdentityFiles(identityFiles: string[], sshAgentSock:
                 if (err) {
                     reject(err);
                 } else {
-                    resolve(publicKeys || []);
+                    resolve((publicKeys || []) as unknown as ParsedKey[]);
                 }
             });
         });
+        logger.trace(`Got ${sshAgentParsedKeys.length} keys from SSH agent`);
     } catch (e) {
         logger.error(`Couldn't get identities from OpenSSH agent`, e);
     }
@@ -99,7 +125,13 @@ export async function gatherIdentityFiles(identityFiles: string[], sshAgentSock:
     const agentKeys: SSHKey[] = [];
     const preferredIdentityKeys: SSHKey[] = [];
     for (const agentKey of sshAgentKeys) {
-        const foundIdx = fileKeys.findIndex(k => agentKey.parsedKey.type === k.parsedKey.type && agentKey.fingerprint === k.fingerprint);
+        const foundIdx = fileKeys.findIndex(k => {
+            // Skip certificates in matching since they don't have parsed keys
+            if (k.isCertificate) {
+                return false;
+            }
+            return agentKey.parsedKey.type === k.parsedKey.type && agentKey.fingerprint === k.fingerprint;
+        });
         if (foundIdx >= 0) {
             preferredIdentityKeys.push({ ...fileKeys[foundIdx], agentSupport: true });
             fileKeys.splice(foundIdx, 1);
@@ -110,7 +142,14 @@ export async function gatherIdentityFiles(identityFiles: string[], sshAgentSock:
     preferredIdentityKeys.push(...agentKeys);
     preferredIdentityKeys.push(...fileKeys);
 
-    logger.trace(`Identity keys:`, preferredIdentityKeys.length ? preferredIdentityKeys.map(k => `${k.filename} ${k.parsedKey.type} SHA256:${k.fingerprint}`).join('\n') : 'None');
+    // Only use regular keys for now
+    const regularKeys = preferredIdentityKeys.filter(k => !k.isCertificate);
+    const sortedKeys = [...regularKeys];
 
-    return preferredIdentityKeys;
+    logger.trace(`Identity keys:`, sortedKeys.length ? sortedKeys.map(k => {
+        const type = k.parsedKey?.type || 'unknown';
+        return `${k.filename} ${type} ${k.fingerprint}`;
+    }).join('\n') : 'None');
+
+    return sortedKeys;
 }
