@@ -109,9 +109,15 @@
         },
         "remote.SSH.serverVersion": {
           "type": "string",
-          "description": "Uplink server version to download (leave empty for latest)",
+          "description": "Uplink server version to download",
           "scope": "application",
-          "default": "0.1.0"
+          "default": "0.1.1"
+        },
+        "remote.SSH.localServerDistPath": {
+          "type": "string",
+          "description": "[Debug] Path to local dist folder containing server builds. Files should be named uplink-server-{arch}-{version}.tar.gz",
+          "scope": "application",
+          "default": ""
         }
       }
     },

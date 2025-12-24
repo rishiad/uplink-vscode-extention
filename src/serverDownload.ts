@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import Log from './common/logger';
 import SSHConnection from './ssh/sshConnection';
 
@@ -28,13 +30,36 @@ export async function detectRemoteSystem(conn: SSHConnection, logger: Log): Prom
     return { arch, libc: 'glibc' };
 }
 
+export function getLocalServerPath(systemInfo: RemoteSystemInfo, logger?: Log): string | undefined {
+    const config = vscode.workspace.getConfiguration('remote.SSH');
+    const localDistPath = config.get<string>('localServerDistPath', '');
+    
+    if (!localDistPath) {
+        return undefined;
+    }
+    
+    const serverVersion = config.get<string>('serverVersion', '0.1.1');
+    const { arch } = systemInfo;
+    const filename = `uplink-server-${arch}-${serverVersion}.tar.gz`;
+    const fullPath = path.join(localDistPath, filename);
+    
+    logger?.trace(`Checking for local server at: ${fullPath}`);
+    
+    if (fs.existsSync(fullPath)) {
+        return fullPath;
+    }
+    
+    logger?.trace(`Local server not found at: ${fullPath}`);
+    return undefined;
+}
+
 export function getServerDownloadUrl(systemInfo: RemoteSystemInfo): string {
     const config = vscode.workspace.getConfiguration('remote.SSH');
     const serverRepo = config.get<string>('serverRepository', 'rishiad/uplink-server');
     const serverVersion = config.get<string>('serverVersion', '0.1.0');
     
-    const { arch, libc } = systemInfo;
-    return `https://github.com/${serverRepo}/releases/download/v${serverVersion}/server-linux-${arch}-${libc}-${serverVersion}.tar.gz`;
+    const { arch } = systemInfo;
+    return `https://github.com/${serverRepo}/releases/download/v${serverVersion}/uplink-server-${arch}-${serverVersion}.tar.gz`;
 }
 
 export async function downloadServerOnRemote(
@@ -104,17 +129,46 @@ echo "DOWNLOAD_COMPLETE"
     logger.trace(`Server downloaded to ${destPath} on remote`);
 }
 
+export async function uploadLocalServer(
+    conn: SSHConnection,
+    localPath: string,
+    remotePath: string,
+    logger: Log
+): Promise<void> {
+    logger.trace(`Uploading local server from ${localPath} to ${remotePath}`);
+    
+    // Create remote directory
+    const destDir = remotePath.substring(0, remotePath.lastIndexOf('/'));
+    await conn.exec(`mkdir -p '${destDir}'`);
+    
+    // Upload file
+    await conn.uploadFile(localPath, remotePath);
+    
+    logger.trace(`Server uploaded to ${remotePath}`);
+}
+
 export async function getOrDownloadServerOnRemote(
     conn: SSHConnection,
     remoteServerDir: string,
     logger: Log
 ): Promise<string> {
     const systemInfo = await detectRemoteSystem(conn, logger);
-    const downloadUrl = getServerDownloadUrl(systemInfo);
     
     // Remote cache path
     const remoteCacheDir = `${remoteServerDir}/cache`;
     const remoteServerPath = `${remoteCacheDir}/server.tar.gz`;
+    
+    // Check for local dist folder first
+    const localServerPath = getLocalServerPath(systemInfo, logger);
+    if (localServerPath) {
+        logger.trace(`Using local server from ${localServerPath}`);
+        await uploadLocalServer(conn, localServerPath, remoteServerPath, logger);
+        return remoteServerPath;
+    }
+    
+    logger.trace('No local server archive specified, downloading from GitHub releases...');
+    
+    const downloadUrl = getServerDownloadUrl(systemInfo);
     
     // Check if already cached on remote
     const checkResult = await conn.exec(`if [ -f '${remoteServerPath}' ]; then echo exists; fi`);

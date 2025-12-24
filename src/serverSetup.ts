@@ -74,7 +74,6 @@ export async function installCodeServer(
     if (!serverInstalled) {
         // Get or download server
         if (!serverArchivePath) {
-            logger.trace('No local server archive specified, downloading from GitHub releases...');
             remoteArchivePath = await getOrDownloadServerOnRemote(conn, serverDataDir, logger);
         } else {
             // Upload local archive
