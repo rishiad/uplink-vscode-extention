@@ -144,12 +144,12 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
         const remoteSSHconfig = vscode.workspace.getConfiguration('remote.SSH');
         const enableDynamicForwarding = remoteSSHconfig.get<boolean>('enableDynamicForwarding', true)!;
         const enableAgentForwarding = remoteSSHconfig.get<boolean>('enableAgentForwarding', true)!;
-        const sidecarArchivePath = remoteSSHconfig.get<string>('sidecarArchivePath');
+        const serverArchivePath = remoteSSHconfig.get<string>('serverArchivePath');
         const defaultExtensions = remoteSSHconfig.get<string[]>('defaultExtensions', []);
         const remotePlatformMap = remoteSSHconfig.get<Record<string, string>>('remotePlatform', {});
         const remoteServerListenOnSocket = remoteSSHconfig.get<boolean>('remoteServerListenOnSocket', false)!;
         const connectTimeout = remoteSSHconfig.get<number>('connectTimeout', 60)!;
-        const resolvedArchivePath = sidecarArchivePath ? untildify(sidecarArchivePath) : undefined;
+        const resolvedArchivePath = serverArchivePath ? untildify(serverArchivePath) : undefined;
 
         return vscode.window.withProgress({
             title: `Setting up SSH Host ${sshDest.hostname}`,

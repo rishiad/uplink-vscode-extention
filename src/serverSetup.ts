@@ -91,7 +91,7 @@ export async function installCodeServer(
                 progress.report({ message: 'Uploading server archive...' });
             }
             await conn.exec(`mkdir -p ${shellEscape(serverDir)}`);
-            logger.trace(`Uploading sidecar archive to ${remoteArchivePath}`);
+            logger.trace(`Uploading server archive to ${remoteArchivePath}`);
             await conn.exec(`rm -f ${shellEscape(remoteArchivePath)}`);
             await conn.uploadFile(localArchivePath, remoteArchivePath);
             await verifyRemoteArchiveSize(conn, localArchivePath, remoteArchivePath, localArchiveSize, logger);
@@ -336,7 +336,7 @@ fi
 # Check if server script is already installed
 if [[ ! -f $SERVER_SCRIPT ]]; then
     if [[ ! -f $SERVER_ARCHIVE_PATH ]]; then
-        echo "Error sidecar archive not found at $SERVER_ARCHIVE_PATH"
+        echo "Error server archive not found at $SERVER_ARCHIVE_PATH"
         print_install_results_and_exit 1
     fi
 

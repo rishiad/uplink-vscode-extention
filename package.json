@@ -72,9 +72,9 @@
           "scope": "application",
           "default": true
         },
-        "remote.SSH.sidecarArchivePath": {
+        "remote.SSH.serverArchivePath": {
           "type": "string",
-          "description": "Absolute path to a local sidecar .tar.gz archive to upload to the remote host.",
+          "description": "Absolute path to a local server .tar.gz archive to upload to the remote host.",
           "default": "",
           "scope": "application"
         },
