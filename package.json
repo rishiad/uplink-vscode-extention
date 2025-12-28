@@ -1,8 +1,8 @@
 {
   "name": "uplink",
   "displayName": "Uplink",
-  "description": "Remote SSH support for OpenVSCode",
-  "version": "0.0.1",
+  "description": "An open-source extension for remote development over SSH",
+   "version": "0.0.1",
   "publisher": "rishiad",
   "repository": {
     "type": "git",
@@ -39,20 +39,20 @@
     "configuration": {
       "title": "Uplink - Remote SSH",
       "properties": {
-        "remote.SSH.configFile": {
+        "uplink.SSH.configFile": {
           "type": "string",
           "description": "The absolute file path to a custom SSH config file.",
           "default": "",
           "scope": "application"
         },
-        "remote.SSH.connectTimeout": {
+        "uplink.SSH.connectTimeout": {
           "type": "number",
           "description": "Specifies the timeout in seconds used for the SSH command that connects to the remote.",
           "default": 60,
           "scope": "application",
           "minimum": 1
         },
-        "remote.SSH.defaultExtensions": {
+        "uplink.SSH.defaultExtensions": {
           "type": "array",
           "items": {
             "type": "string"
@@ -60,25 +60,25 @@
           "description": "List of extensions that should be installed automatically on all SSH hosts.",
           "scope": "application"
         },
-        "remote.SSH.enableDynamicForwarding": {
+        "uplink.SSH.enableDynamicForwarding": {
           "type": "boolean",
           "description": "Whether to use SSH dynamic forwarding to allow setting up new port tunnels over an existing SSH connection.",
           "scope": "application",
           "default": true
         },
-        "remote.SSH.enableAgentForwarding": {
+        "uplink.SSH.enableAgentForwarding": {
           "type": "boolean",
           "markdownDescription": "Enable fixing the remote environment so that the SSH config option `ForwardAgent` will take effect as expected from VS Code's remote extension host.",
           "scope": "application",
           "default": true
         },
-        "remote.SSH.serverArchivePath": {
+        "uplink.SSH.serverArchivePath": {
           "type": "string",
           "description": "Absolute path to a local server .tar.gz archive to upload to the remote host.",
           "default": "",
           "scope": "application"
         },
-        "remote.SSH.remotePlatform": {
+        "uplink.SSH.remotePlatform": {
           "type": "object",
           "description": "A map of the remote hostname to the platform for that remote. Valid values: linux.",
           "scope": "application",
@@ -90,30 +90,30 @@
             ]
           }
         },
-        "remote.SSH.remoteServerListenOnSocket": {
+        "uplink.SSH.remoteServerListenOnSocket": {
           "type": "boolean",
           "description": "When true, the remote server will listen on a socket path instead of opening a port. Only valid for Linux remotes.",
           "default": false
         },
-        "remote.SSH.experimental.serverBinaryName": {
+        "uplink.SSH.experimental.serverBinaryName": {
           "type": "string",
           "description": "**Experimental:** The name of the server binary, use this only if you are using a client without a corresponding server release",
           "scope": "application",
           "default": ""
         },
-        "remote.SSH.serverRepository": {
+        "uplink.SSH.serverRepository": {
           "type": "string",
           "description": "GitHub repository for Uplink server releases (format: owner/repo)",
           "scope": "application",
           "default": "rishiad/uplink-server"
         },
-        "remote.SSH.serverVersion": {
+        "uplink.SSH.serverVersion": {
           "type": "string",
           "description": "Uplink server version to download",
           "scope": "application",
           "default": "0.1.1"
         },
-        "remote.SSH.localServerDistPath": {
+        "uplink.SSH.localServerDistPath": {
           "type": "string",
           "description": "[Debug] Path to local dist folder containing server builds. Files should be named uplink-server-{arch}-{version}.tar.gz",
           "scope": "application",

@@ -141,7 +141,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
 
         // It looks like default values are not loaded yet when resolving a remote,
         // so let's hardcode the default values here
-        const remoteSSHconfig = vscode.workspace.getConfiguration('remote.SSH');
+        const remoteSSHconfig = vscode.workspace.getConfiguration('uplink.SSH');
         const enableDynamicForwarding = remoteSSHconfig.get<boolean>('enableDynamicForwarding', true)!;
         const enableAgentForwarding = remoteSSHconfig.get<boolean>('enableAgentForwarding', true)!;
         const serverArchivePath = remoteSSHconfig.get<string>('serverArchivePath');
@@ -355,7 +355,7 @@ export class RemoteSSHResolver implements vscode.RemoteAuthorityResolver, vscode
                 if (context.resolveAttempt === 1) {
                     this.logger.show();
 
-                    const closeRemote = 'Close Remote';
+                    const closeRemote = 'Close Uplink';
                     const retry = 'Retry';
                     const result = await vscode.window.showErrorMessage(`Could not establish connection to "${sshDest.hostname}"`, { modal: true }, closeRemote, retry);
                     if (result === closeRemote) {

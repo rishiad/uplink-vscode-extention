@@ -85,7 +85,7 @@ export class HostTreeDataProvider
 
     this._register(
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("remote.SSH.configFile")) {
+        if (e.affectsConfiguration("uplink.SSH.configFile")) {
           this.refresh();
         }
       })

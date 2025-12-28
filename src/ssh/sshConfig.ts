@@ -11,7 +11,7 @@ const systemSSHConfig = isWindows ? path.resolve(process.env.ALLUSERSPROFILE || 
 const defaultSSHConfigPath = path.resolve(os.homedir(), '.ssh/config');
 
 export function getSSHConfigPath() {
-    const sshConfigPath = vscode.workspace.getConfiguration('remote.SSH').get<string>('configFile');
+    const sshConfigPath = vscode.workspace.getConfiguration('uplink.SSH').get<string>('configFile');
     return sshConfigPath ? untildify(sshConfigPath) : defaultSSHConfigPath;
 }
 

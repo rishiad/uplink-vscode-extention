@@ -31,7 +31,7 @@ export async function detectRemoteSystem(conn: SSHConnection, logger: Log): Prom
 }
 
 export function getLocalServerPath(systemInfo: RemoteSystemInfo, logger?: Log): string | undefined {
-    const config = vscode.workspace.getConfiguration('remote.SSH');
+    const config = vscode.workspace.getConfiguration('uplink.SSH');
     const localDistPath = config.get<string>('localServerDistPath', '');
     
     if (!localDistPath) {
@@ -54,7 +54,7 @@ export function getLocalServerPath(systemInfo: RemoteSystemInfo, logger?: Log): 
 }
 
 export function getServerDownloadUrl(systemInfo: RemoteSystemInfo): string {
-    const config = vscode.workspace.getConfiguration('remote.SSH');
+    const config = vscode.workspace.getConfiguration('uplink.SSH');
     const serverRepo = config.get<string>('serverRepository', 'rishiad/uplink-server');
     const serverVersion = config.get<string>('serverVersion', '0.1.0');
     

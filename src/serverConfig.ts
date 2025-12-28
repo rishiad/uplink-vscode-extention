@@ -25,7 +25,7 @@ export interface IServerConfig {
 export async function getVSCodeServerConfig(): Promise<IServerConfig> {
     const productJson = await getVSCodeProductJson();
 
-    const customServerBinaryName = vscode.workspace.getConfiguration('remote.SSH.experimental').get<string>('serverBinaryName', '');
+    const customServerBinaryName = vscode.workspace.getConfiguration('uplink.SSH.experimental').get<string>('serverBinaryName', '');
 
     return {
         version: vscode.version.replace('-insider',''),
